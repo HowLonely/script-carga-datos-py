@@ -12,13 +12,17 @@ path_archivo_forms = ""
 path_archivo_final = ""
 hoja_final = "Listado SKU (2808)"
 
-# Variables globales para columnas necesarias
+# Columnas extraidas del archivo de google forms
 columnas_necesarias_form = ["Hora de inicio", "¿Cual es tu nombre?", "¿Cual es el código de stock?", "¿Material es encontrado?", "¿Caja Cerrada?",
                               "¿Descripción Extendida del material?", "¿Número de Parte?, Escríbalo tal como se desarrolla en el componente físico.",
                               "¿Fabricante?", "¿Modelo? Detalle modelo de componente.", "¿Cantidad Contabilizada? Información relacionada a inventario realizado.",
                               "Comentario Adicional"]
 
-columnas_necesarias_final = []
+# Columnas que se cambiarán en la tabla maestra
+columnas_necesarias_final = ["Status Planificacion (KDM)", "Turno (KDM)", "Semana (KDM)", "Responsable (KDM)", "Fecha (KDM)", "Meses"
+                                        "SKU", "Ubicacion", "Número de Parte", "Fabricante (s)", "Descripción Extendida", "Modelo", 
+                                        "Cantidad Contabilizada", "Comentarios adicionales ", "CAJA CERRADA?", "Status KDM"]
+
 df_final = None
 df_columns_final = []
 relaciones = {}
@@ -29,12 +33,12 @@ diccionario_mapeo = {}
 def seleccionar_archivo_forms():
     global path_archivo_forms
     archivo = filedialog.askopenfilename(
-        title="Seleccionar archivo de formularios",
+        title="Seleccionar archivo de google forms",
         filetypes=[("Excel Files", "*.xlsx"), ("All Files", "*.*")]
     )
     if archivo:
         path_archivo_forms = archivo
-        archivo_forms_label.config(text=f"Archivo de formularios: {archivo}")
+        archivo_forms_label.config(text=f"Archivo de google forms: {archivo}")
     else:
         messagebox.showwarning("Selección de archivo", "No se ha seleccionado ningún archivo.")
 
@@ -42,12 +46,12 @@ def seleccionar_archivo_forms():
 def seleccionar_archivo_final():
     global path_archivo_final
     archivo = filedialog.askopenfilename(
-        title="Seleccionar archivo final",
+        title="Seleccionar archivo de tabla maestra",
         filetypes=[("Excel Files", "*.xlsm"), ("All Files", "*.*")]
     )
     if archivo:
         path_archivo_final = archivo
-        archivo_final_label.config(text=f"Archivo final: {archivo}")
+        archivo_final_label.config(text=f"Archivo tabla maestra: {archivo}")
 
         # Cargar el archivo final después de seleccionar
         global df_final, df_columns_final
@@ -55,15 +59,12 @@ def seleccionar_archivo_final():
         df_columns_final = df_final.columns.to_list()
 
 
-        global columnas_necesarias_final
-
-        columnas_necesarias_final = ["Status Planificacion (KDM)", "Turno (KDM)", "Semana (KDM)", "Responsable (KDM)", "Fecha (KDM)", "Meses"
-                                        "SKU", "Ubicacion", "Número de Parte", "Fabricante (s)", "Descripción Extendida", "Modelo", 
-                                        "Cantidad Contabilizada", "Comentarios adicionales ", "CAJA CERRADA?", "Status KDM"]
-
         # Relaciones
         global relaciones
         relaciones = {
+            # Relaciones para crear la logica posterior de traspaso de la data
+            # Ultimo registro de la lista corresponde a la columna de la tabla maestra
+
             "caja_cerrada": ["¿Caja Cerrada?", "CAJA CERRADA?"],
             "desc_ext": ["¿Descripción Extendida del material?", "¿Número de Parte?, Escríbalo tal como se desarrolla en el componente físico.", 
                          "¿Fabricante?", "Descripción Extendida"],
@@ -89,15 +90,15 @@ def proceso_form(fecha_obj):
     df_columns_form = df_form.columns.tolist()
     
     # Convertir la columna 'Hora de inicio' a datetime para comparar solo la fecha
-    df_form['Hora de inicio'] = pd.to_datetime(df_form[df_columns_form[1]], errors='coerce')
+    df_form[columnas_necesarias_form[0]] = pd.to_datetime(df_form[df_columns_form[1]], errors='coerce')
 
     # Filtrar solo las filas que coinciden con la fecha ingresada
-    df_filtrado = df_form[df_form['Hora de inicio'].dt.date == fecha_obj.date()]
+    df_filtrado = df_form[df_form[columnas_necesarias_form[0]].dt.date == fecha_obj.date()]
 
     # Verificar si se encontraron resultados
     if not df_filtrado.empty:
-        # Ordenar por 'Hora de inicio' de antiguo a más reciente
-        df_filtrado = df_filtrado.sort_values(by='Hora de inicio', ascending=True)
+        # Ordenar por 'Hora de inicio' de antiguo a más reciente (Paso necesario para evitar duplicidad de registros)
+        df_filtrado = df_filtrado.sort_values(by=columnas_necesarias_form[0], ascending=True)
 
         # Seleccionar solo las columnas necesarias
         registros_necesarios = df_filtrado[df_filtrado.columns[df_filtrado.columns.isin(columnas_necesarias_form)]]
@@ -106,11 +107,6 @@ def proceso_form(fecha_obj):
 
         # Convertir a lista de diccionarios para mayor claridad en el resultado
         registros_list_form = registros_necesarios.to_dict('records')
-
-
-        for registro in registros_list_form:
-            print("[DEBUG FORMS]", registro)
-            print("")
 
         return registros_list_form
     else:
@@ -122,13 +118,13 @@ def crear_diccionario_mapeo(registros):
     mapeo = {}
 
     for registro in registros:
-        sku = registro.get("¿Cual es el código de stock?")
+        sku = registro.get(columnas_necesarias_form[2])
         if sku is None:
             continue
 
         print
         
-        fila_final = df_final[df_final["SKU"] == sku]
+        fila_final = df_final[df_final[columnas_necesarias_form[6]] == sku]
         if fila_final.empty:
             continue
         
@@ -146,7 +142,7 @@ def crear_diccionario_mapeo(registros):
             if clave == "desc_ext":
                 mapeo[sku][df_columns_final[df_columns_final.index(columna_destino)]] = ' '.join(str(dato) for dato in datos_origen if pd.notna(dato))
             elif clave == "fecha":
-                fecha_valor = registro.get("Hora de inicio")
+                fecha_valor = registro.get(columnas_necesarias_form[0])
                 
                 if pd.notna(fecha_valor):
                     # Convertir la fecha al formato DD/MM/YYYY
